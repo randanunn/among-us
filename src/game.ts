@@ -59,8 +59,12 @@ export interface Settings {
   cooldownSeconds: number;
 }
 
+/** An emergency meeting uses up one of the caller's meetings; reporting a body is always free. */
+export type MeetingKind = 'emergency' | 'body';
+
 interface Meeting {
   number: number;
+  kind: MeetingKind;
   calledBy: string;
   endsAt: number;
   /** Voter id → the player they picked, or null for Skip. Voters can change their minds until it closes. */
@@ -298,14 +302,22 @@ export class Game {
     const caller = this.requireAlive(id);
     const wait = this.meetingAvailableAt - this.now();
     if (wait > 0) throw new GameError(`Meetings open again in ${Math.ceil(wait / 1000)}s`);
-    // Like reporting a body in the real game, a meeting called after a kill is free.
-    if (!this.hasUnrevealedDeath()) {
-      if (caller.meetingsUsed >= this.settings.meetingsPerPlayer) throw new GameError('You have no emergency meetings left');
-      caller.meetingsUsed++;
-    }
+    if (caller.meetingsUsed >= this.settings.meetingsPerPlayer) throw new GameError('You have no emergency meetings left');
+    caller.meetingsUsed++;
+    this.startMeeting(caller, 'emergency');
+  }
+
+  /** Like in the real game, reporting a body has no limit and no cooldown. */
+  reportBody(id: string): void {
+    if (this.phase !== 'playing') throw new GameError('A meeting is already going');
+    this.startMeeting(this.requireAlive(id), 'body');
+  }
+
+  private startMeeting(caller: Player, kind: MeetingKind): void {
     for (const p of this.players) if (p.death) p.deathKnown = true;
     this.meeting = {
       number: ++this.meetingNumber,
+      kind,
       calledBy: caller.name,
       endsAt: this.now() + this.settings.voteSeconds * 1000,
       votes: new Map(),
@@ -405,7 +417,7 @@ export class Game {
               tasks: me.tasks,
               death: me.death,
               meetingsLeft: Math.max(0, this.settings.meetingsPerPlayer - me.meetingsUsed),
-              canCallMeeting: !me.death && (this.hasUnrevealedDeath() || me.meetingsUsed < this.settings.meetingsPerPlayer),
+              canCallMeeting: !me.death && me.meetingsUsed < this.settings.meetingsPerPlayer,
             }
           : null,
       counts: inGame ? { crew: counts.crew, imposters: counts.imposters } : null,
@@ -413,6 +425,7 @@ export class Game {
       meeting: meeting
         ? {
             number: meeting.number,
+            kind: meeting.kind,
             calledBy: meeting.calledBy,
             remainingMs: Math.max(0, meeting.endsAt - this.now()),
             votedIds: [...meeting.votes.keys()],
@@ -461,10 +474,6 @@ export class Game {
     this.meetingAvailableAt = this.now() + this.settings.cooldownSeconds * 1000;
     // A pending win from a kill still gets its full grace period.
     if (this.pendingWinAt === null) this.endIfOutnumbered(true);
-  }
-
-  private hasUnrevealedDeath(): boolean {
-    return this.players.some((p) => p.death && !p.deathKnown);
   }
 
   private alivePlayers(): Player[] {

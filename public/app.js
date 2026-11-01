@@ -246,6 +246,9 @@ const actions = {
   meeting() {
     withConfirm('meeting', () => send({ type: 'meeting' }));
   },
+  reportBody() {
+    withConfirm('reportBody', () => send({ type: 'reportBody' }));
+  },
   killed() {
     withConfirm('killed', () => send({ type: 'killed' }));
   },
@@ -497,7 +500,7 @@ function settingsPanel() {
         ${select('voteSeconds', VOTE_TIMES, seconds)}
       </div>
       <div class="setting">
-        <span class="label">Emergency meetings<small>Per player. Free after someone is killed.</small></span>
+        <span class="label">Emergency meetings<small>Per player. Reporting a body is always free.</small></span>
         ${stepper('meetingsPerPlayer', 0, maxMeetings)}
       </div>
       <div class="setting">
@@ -663,6 +666,7 @@ function actionsPanel() {
     <section class="panel stack">
       <button class="big emergency ${confirmMeeting ? 'confirm' : ''}" data-action="meeting" ${coolingDown || !you.canCallMeeting ? 'disabled' : ''}>${meetingLabel}</button>
       <p class="muted center">${plural(you.meetingsLeft, 'emergency meeting')} left</p>
+      <button class="${isConfirming('reportBody') ? 'confirm' : ''}" data-action="reportBody">${isConfirming('reportBody') ? 'Tap again to report a body' : '💀 Found a dead body'}</button>
       ${killedButton()}
     </section>`;
 }
@@ -731,8 +735,8 @@ function meetingView() {
   };
   return `
     <section class="panel stack center">
-      <div class="result-banner imposter">🚨 EMERGENCY MEETING</div>
-      <p class="muted">Called by ${esc(m.calledBy)}</p>
+      <div class="result-banner imposter">${m.kind === 'body' ? '💀 DEAD BODY REPORTED' : '🚨 EMERGENCY MEETING'}</div>
+      <p class="muted">${m.kind === 'body' ? 'Reported' : 'Called'} by ${esc(m.calledBy)}</p>
       <div class="timer ${remaining < 15_000 ? 'low' : ''}">${clock(remaining)}</div>
       <p class="muted">${voted.size} of ${alive.length} voted</p>
     </section>
@@ -827,7 +831,7 @@ function rulesPanel() {
         <li>Crewmates do their tasks and check them off. If every crewmate task is done, the crew wins.</li>
         <li>Imposters pretend to do tasks while secretly "killing" crewmates (tag them quietly). Dead players stay put.</li>
         <li>Killed? Tap <b>I was killed</b> on your phone and stay put. Nobody is told until the next meeting.</li>
-        <li>Found a body? Call an <b>Emergency meeting</b> and talk about it. The meeting shows everyone who's dead.</li>
+        <li>Found a body? Tap <b>Found a dead body</b> to start a meeting. It doesn't use up your emergency meeting. The meeting shows everyone who's dead.</li>
         <li>In a meeting, discuss and vote. The player with the most votes is out. A tie, or everyone skipping, means nobody is.</li>
         <li>Crew wins if every imposter is voted out. Imposters win once they equal the crewmates.</li>
         <li>Dead players keep doing tasks but can't vote, be voted for, or call meetings. Tapped <b>I was killed</b> by mistake? Tap <b>I'm not dead</b>.</li>

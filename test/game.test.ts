@@ -234,18 +234,33 @@ test('undoing a mistaken kill during the grace period cancels the win', () => {
   assert.equal(game.phase, 'playing');
 });
 
-test('emergency meetings: one each by default, free after a kill, with a cooldown', () => {
+test('emergency meetings: one each by default, with a cooldown, and a kill does not make them free', () => {
   const { game, tick } = setup(['a', 'b', 'c', 'd', 'e']);
   assert.throws(() => game.updateSettings('a', { voteSeconds: 30 }), /before the game starts/);
   game.settings.cooldownSeconds = 15;
   game.callMeeting('a');
+  assert.equal(game.meeting!.kind, 'emergency');
   everyoneVotes(game, null);
   assert.throws(() => game.callMeeting('b'), /open again in 15s/);
   tick(15_000);
   assert.throws(() => game.callMeeting('a'), /no emergency meetings left/);
   game.markKilled('d');
-  game.callMeeting('a'); // free: someone was killed since the last meeting
-  assert.equal(game.player('a')!.meetingsUsed, 1);
+  assert.equal(game.viewFor('a').you!.canCallMeeting, false);
+  assert.throws(() => game.callMeeting('a'), /no emergency meetings left/);
+});
+
+test('reporting a body starts a meeting with no limit and no cooldown', () => {
+  const { game } = setup(['a', 'b', 'c', 'd', 'e']);
+  game.settings.cooldownSeconds = 15;
+  game.settings.meetingsPerPlayer = 0;
+  for (let i = 0; i < 3; i++) {
+    game.reportBody('a');
+    assert.equal(game.meeting!.kind, 'body');
+    everyoneVotes(game, null);
+  }
+  assert.equal(game.player('a')!.meetingsUsed, 0);
+  game.markKilled('b');
+  assert.throws(() => game.reportBody('b'), /dead/);
 });
 
 test('meeting cooldown applies at the start of the game', () => {

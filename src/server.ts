@@ -191,6 +191,9 @@ function handle(client: Client, message: Record<string, unknown>): void {
     case 'meeting':
       game.callMeeting(id);
       break;
+    case 'reportBody':
+      game.reportBody(id);
+      break;
     case 'vote':
       game.vote(id, message.playerId ?? null);
       break;
