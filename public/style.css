@@ -1,0 +1,560 @@
+:root {
+  --bg: #14161f;
+  --panel: #1e2130;
+  --panel-2: #272b3d;
+  --text: #f2f3f7;
+  --muted: #9298ad;
+  --accent: #4ade80;
+  --accent-ink: #052e16;
+  --gold: #facc15;
+  --danger: #f87171;
+  --imposter: #ef4444;
+  --crew: #60a5fa;
+  --info: #60a5fa;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+h1 {
+  margin: 8px 0 0;
+  font-size: 44px;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+p {
+  margin: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.center {
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spread {
+  justify-content: space-between;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Buttons */
+
+button {
+  font: inherit;
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 600;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+button.big {
+  width: 100%;
+  font-size: 22px;
+  padding: 20px;
+}
+
+button.emergency {
+  background: var(--imposter);
+  color: #fff;
+}
+
+button.confirm {
+  background: var(--danger);
+  color: #fff;
+}
+
+button.small {
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+button.link {
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  padding: 8px;
+}
+
+.segmented {
+  display: flex;
+  background: var(--panel-2);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+
+.segmented button {
+  flex: 1;
+  background: none;
+  padding: 10px;
+}
+
+.segmented button.selected {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+input,
+select {
+  font: inherit;
+  font-size: 18px;
+  width: 100%;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 2px solid var(--panel-2);
+  background: var(--bg);
+  color: var(--text);
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+select {
+  width: auto;
+  padding: 8px 12px;
+}
+
+/* Settings */
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.setting .label small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stepper button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 20px;
+}
+
+.stepper .value {
+  min-width: 32px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Player lists */
+
+.players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.players li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: 10px;
+  min-height: 48px;
+}
+
+.players .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.players li.dead .name {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.tag {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tag.you {
+  color: var(--info);
+}
+
+.tag.imposter {
+  color: var(--imposter);
+  font-weight: 700;
+}
+
+.tag.crew {
+  color: var(--crew);
+  font-weight: 700;
+}
+
+.offline .name {
+  opacity: 0.5;
+}
+
+/* Game */
+
+.counts {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--panel-2);
+}
+
+.counts .badge {
+  flex: 1;
+  justify-content: center;
+}
+
+.badge.crew {
+  background: #1e3a5f;
+  color: #bfdbfe;
+}
+
+.badge.imposter {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.progress {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.progress .fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font-weight: 500;
+  font-size: 17px;
+  min-height: 64px;
+}
+
+.task-list .check {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.task-list button.done {
+  color: var(--muted);
+}
+
+.task-list button.done .text {
+  text-decoration: line-through;
+}
+
+.task-list button.done .check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.dead-banner {
+  background: #2a1f3d;
+  border: 2px solid #6b4fa0;
+  text-align: center;
+}
+
+.dead-banner .ghost {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.vote-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  min-height: 56px;
+}
+
+.vote-list button .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vote-list button.selected {
+  background: var(--gold);
+  color: #3a2c00;
+}
+
+.vote-list button.selected .tag {
+  color: #3a2c00;
+}
+
+.timer {
+  font-size: 56px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.timer.low {
+  color: var(--danger);
+}
+
+.vote-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vote-groups li {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: 10px;
+}
+
+.vote-groups .count {
+  float: right;
+  font-weight: 700;
+}
+
+.role-card {
+  text-align: center;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 60vh;
+  justify-content: center;
+}
+
+.role-name {
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.role-name.imposter {
+  color: var(--imposter);
+}
+
+.role-name.crew {
+  color: var(--crew);
+}
+
+.peek {
+  min-height: 1.5em;
+}
+
+.task-pool {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-pool li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: 10px;
+}
+
+.task-pool .text {
+  flex: 1;
+}
+
+.task-pool .by {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Results */
+
+.result-banner {
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.result-banner.imposter {
+  color: var(--imposter);
+}
+
+.result-banner.crew {
+  color: var(--crew);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.rules {
+  font-size: 15px;
+  line-height: 1.5;
+  padding-left: 20px;
+  margin: 10px 0 0;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  background: var(--danger);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  max-width: 90vw;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.offline-bar {
+  background: var(--danger);
+  color: #fff;
+  text-align: center;
+  padding: 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.room-code {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.hint {
+  margin-top: 10px;
+  font-size: 14px;
+}
