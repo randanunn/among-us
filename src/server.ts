@@ -148,6 +148,7 @@ function handle(client: Client, message: Record<string, unknown>): void {
       game.updateSettings(id, {
         imposters: message.imposters,
         taskMode: message.taskMode,
+        tasksPerPlayer: message.tasksPerPlayer,
         voteSeconds: message.voteSeconds,
         meetingsPerPlayer: message.meetingsPerPlayer,
         cooldownSeconds: message.cooldownSeconds,
@@ -176,8 +177,13 @@ function handle(client: Client, message: Record<string, unknown>): void {
         return;
       }
       break;
-    case 'reportBody':
-      game.reportBody(id, message.playerId);
+    case 'killed':
+      game.markKilled(id);
+      // An imposter's tap does nothing, so nobody else should hear about it.
+      if (game.player(id)?.role === 'imposter') {
+        for (const c of clients) if (c.room === room && c.playerId === id) sendState(c);
+        return;
+      }
       break;
     case 'undoDeath':
       game.undoDeath(id);

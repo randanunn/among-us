@@ -402,6 +402,25 @@ select {
   color: #3a2c00;
 }
 
+.dead-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 2px dashed var(--panel-2);
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.dead-row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .timer {
   font-size: 56px;
   font-weight: 800;

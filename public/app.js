@@ -24,10 +24,10 @@ let roomCode = location.hash.slice(1).toUpperCase() || null;
 let meetingEndsAt = 0;
 let cooldownUntil = 0;
 let revealing = false; // the role reveal has been tapped open
-let pickingBody = false;
 let peekUntil = 0;
 let confirming = null; // { key, until } for two-tap actions
 let toastTimer = null;
+let audio = null;
 const openDetails = new Set();
 
 function loadPlayerId() {
@@ -92,7 +92,8 @@ function onState({ room, state: next, missingRoom }) {
 
   meetingEndsAt = next.meeting ? Date.now() + next.meeting.remainingMs : 0;
   cooldownUntil = Date.now() + next.meetingCooldownMs;
-  if (next.phase !== 'playing') pickingBody = false;
+
+  if (prev && prev.phase !== 'meeting' && next.phase === 'meeting') playAlarm();
 
   // Buzz when something happens that everyone needs to look at.
   if (prev && prev.phase !== next.phase && ['playing', 'meeting', 'gameover'].includes(next.phase)) {
@@ -121,6 +122,42 @@ function showToast(message) {
   toastEl.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toastEl.hidden = true), 2500);
+}
+
+// ---------------------------------------------------------------- sound
+
+/** Phones only allow sound after a tap, so every tap makes sure audio is ready. */
+function unlockAudio() {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!Context) return;
+  if (!audio) {
+    // Without this, iPhones stay silent when the ringer switch is off.
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    audio = new Context();
+  }
+  if (audio.state !== 'running') audio.resume().catch(() => {});
+}
+document.addEventListener('pointerdown', unlockAudio, true);
+document.addEventListener('keydown', unlockAudio, true);
+
+/** A two-tone siren for emergency meetings, about two seconds long. */
+function playAlarm() {
+  if (!audio) return;
+  if (audio.state !== 'running') audio.resume().catch(() => {});
+  const start = audio.currentTime + 0.05;
+  const length = 2;
+  const gain = audio.createGain();
+  gain.connect(audio.destination);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.25, start + 0.03);
+  gain.gain.setValueAtTime(0.25, start + length - 0.1);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+  const siren = audio.createOscillator();
+  siren.type = 'square';
+  for (let i = 0; i < length / 0.25; i++) siren.frequency.setValueAtTime(i % 2 ? 660 : 880, start + i * 0.25);
+  siren.connect(gain);
+  siren.start(start);
+  siren.stop(start + length);
 }
 
 // The vote timer, meeting cooldown, and role peek count down on screen.
@@ -155,6 +192,10 @@ const actions = {
   join() {
     const name = enteredName();
     if (name) send({ type: 'join', name });
+  },
+  testSound() {
+    unlockAudio();
+    playAlarm();
   },
   share() {
     navigator.share?.({ title: 'Among Us', text: `Join my Among Us game: ${roomCode}`, url: shareUrl() }).catch(() => {});
@@ -205,16 +246,8 @@ const actions = {
   meeting() {
     withConfirm('meeting', () => send({ type: 'meeting' }));
   },
-  pickBody() {
-    pickingBody = !pickingBody;
-    render();
-  },
-  reportBody(id) {
-    withConfirm(`body:${id}`, () => {
-      send({ type: 'reportBody', playerId: id });
-      pickingBody = false;
-      showToast(`Reported. Call a meeting to tell everyone.`);
-    });
+  killed() {
+    withConfirm('killed', () => send({ type: 'killed' }));
   },
   undoDeath() {
     withConfirm('undoDeath', () => send({ type: 'undoDeath' }));
@@ -375,13 +408,16 @@ function lobbyView() {
   const count = state.players.length;
   const manual = state.settings.taskMode === 'manual';
   const tooManyImposters = state.settings.imposters > state.maxImposters;
-  const ready = count >= minPlayers && !tooManyImposters;
+  const tooFewAutoTasks = !manual && state.tasksNeeded > state.limits.autoTaskCount;
+  const ready = count >= minPlayers && !tooManyImposters && !tooFewAutoTasks;
   const blocker =
     count < minPlayers
       ? `Need at least ${minPlayers} players.`
       : tooManyImposters
         ? `${count} players can only have ${plural(state.maxImposters, 'imposter')}.`
-        : '';
+        : tooFewAutoTasks
+          ? `There are only ${state.limits.autoTaskCount} built-in tasks. Lower the tasks per player.`
+          : '';
 
   return `
     <h1>AMONG US</h1>
@@ -396,6 +432,7 @@ function lobbyView() {
       ${playerList({ removable: true })}
     </section>
     ${settingsPanel()}
+    <button data-action="testSound">🔊 Test the meeting alarm</button>
     ${
       isHost()
         ? `<button class="primary big" data-action="${manual ? 'lock' : 'start'}" ${ready ? '' : 'disabled'}>
@@ -410,12 +447,12 @@ function lobbyView() {
 
 function settingsPanel() {
   const s = state.settings;
-  const { maxMeetings, maxCooldownSeconds } = state.limits;
+  const { maxMeetings, maxCooldownSeconds, maxTasksPerPlayer } = state.limits;
   if (!isHost()) {
     return `
       <section class="panel stack">
         <h2>Settings</h2>
-        <p>${plural(s.imposters, 'imposter')} · ${s.taskMode === 'manual' ? '✍️ Players write the tasks' : '🎲 Automatic tasks'}</p>
+        <p>${plural(s.imposters, 'imposter')} · ${plural(s.tasksPerPlayer, 'task')} each · ${s.taskMode === 'manual' ? '✍️ Players write them' : '🎲 Automatic'}</p>
         <p class="muted">${seconds(s.voteSeconds)} to vote · ${plural(s.meetingsPerPlayer, 'emergency meeting')} each · ${s.cooldownSeconds}s meeting cooldown</p>
       </section>`;
   }
@@ -448,15 +485,19 @@ function settingsPanel() {
                  .map(([mode, label]) => `<button class="${s.taskMode === mode ? 'selected' : ''}" data-action="taskMode" data-value="${mode}">${label}</button>`)
                  .join('')}
              </div>
-             <p class="muted">${s.taskMode === 'manual' ? 'You lock the room, then everyone writes tasks before the game starts.' : 'Everyone gets 3 tasks from around the house.'}</p>`
+             <p class="muted">${s.taskMode === 'manual' ? 'You lock the room, then everyone writes tasks before the game starts.' : 'Tasks are picked from a built-in list of things to do around the house.'}</p>`
           : ''
       }
+      <div class="setting">
+        <span class="label">Tasks per player</span>
+        ${stepper('tasksPerPlayer', 1, maxTasksPerPlayer)}
+      </div>
       <div class="setting">
         <span class="label">Vote timer</span>
         ${select('voteSeconds', VOTE_TIMES, seconds)}
       </div>
       <div class="setting">
-        <span class="label">Emergency meetings<small>Per player. Free after a body is found.</small></span>
+        <span class="label">Emergency meetings<small>Per player. Free after someone is killed.</small></span>
         ${stepper('meetingsPerPlayer', 0, maxMeetings)}
       </div>
       <div class="setting">
@@ -591,10 +632,17 @@ function deadBanner() {
   const death = state.you.death;
   if (!death) return '';
   const undo = isConfirming('undoDeath');
+  const everyoneKnows = state.players.find((p) => p.id === state.youId).death !== null;
+  const how =
+    death === 'ejected'
+      ? 'You were voted out.'
+      : everyoneKnows
+        ? 'You were killed.'
+        : "You were killed. Nobody else knows until the next meeting starts, so stay where you are.";
   return `
     <section class="panel stack dead-banner">
       <div class="ghost">👻 You're dead</div>
-      <p class="muted">${death === 'ejected' ? 'You were voted out.' : 'Someone reported finding your body.'} Keep doing your tasks, but you can't vote or call meetings.</p>
+      <p class="muted">${how} Keep doing your tasks, but you can't vote or call meetings.</p>
       ${death === 'killed' ? `<button class="${undo ? 'confirm' : ''}" data-action="undoDeath">${undo ? "Tap again: I'm really not dead" : "I'm not dead"}</button>` : ''}
     </section>`;
 }
@@ -611,27 +659,18 @@ function actionsPanel() {
       : confirmMeeting
         ? 'Tap again to call a meeting'
         : '🚨 Emergency meeting';
-  const candidates = state.players.filter((p) => p.id !== state.youId && !p.death);
-  const bodyPicker = pickingBody
-    ? `
-      <p class="muted center">Whose body did you find?</p>
-      <div class="vote-list stack">
-        ${candidates
-          .map((p) => {
-            const key = `body:${p.id}`;
-            return `<button class="${isConfirming(key) ? 'confirm' : ''}" data-action="reportBody" data-value="${esc(p.id)}">
-              <span class="name">${isConfirming(key) ? `Tap again: ${esc(p.name)} is dead` : esc(p.name)}</span></button>`;
-          })
-          .join('')}
-      </div>
-      <button class="link" data-action="pickBody">Cancel</button>`
-    : '<button data-action="pickBody">💀 Found a dead body</button>';
   return `
     <section class="panel stack">
       <button class="big emergency ${confirmMeeting ? 'confirm' : ''}" data-action="meeting" ${coolingDown || !you.canCallMeeting ? 'disabled' : ''}>${meetingLabel}</button>
       <p class="muted center">${plural(you.meetingsLeft, 'emergency meeting')} left</p>
-      ${bodyPicker}
+      ${killedButton()}
     </section>`;
+}
+
+/** Everyone has this, imposters included, so phones look the same. It does nothing for imposters. */
+function killedButton() {
+  const confirm = isConfirming('killed');
+  return `<button class="${confirm ? 'confirm' : ''}" data-action="killed">${confirm ? 'Tap again: I was killed' : '🔪 I was killed'}</button>`;
 }
 
 /** Anyone can peek at their role. It hides itself again after a few seconds. */
@@ -712,10 +751,20 @@ function meetingView() {
           )
           .join('')}
         ${choice(null, '⏭️ Skip')}
+        ${dead
+          .map(
+            (p) => `
+              <div class="dead-row">
+                <span>👻</span>
+                <span class="name">${esc(p.name)}${p.id === state.youId ? ' <span class="tag you">(you)</span>' : ''}</span>
+                <span class="tag">${p.death === 'ejected' ? 'voted out' : 'dead'}</span>
+              </div>`,
+          )
+          .join('')}
       </div>
-      ${canVote ? '<p class="muted center">You can change your vote until time runs out.</p>' : ''}
+      <p class="muted center">${canVote ? 'You can change your vote until time runs out.' : "Dead players can't vote or be voted for."}</p>
     </section>
-    ${dead.length ? `<section class="panel"><h2>Dead</h2><p>${dead.map((p) => `💀 ${esc(p.name)}`).join('<br />')}</p></section>` : ''}
+    ${canVote ? `<section class="panel stack"><p class="muted center">Killed before this meeting and forgot to tap it?</p>${killedButton()}</section>` : ''}
     ${leaveButton()}`;
 }
 
@@ -756,7 +805,7 @@ function playerList({ removable = false, roles = false } = {}) {
     return `
       <li class="${classes}">
         ${p.id === state.hostId ? '<span title="Host">👑</span>' : ''}
-        ${p.death ? '<span>💀</span>' : ''}
+        ${p.death ? '<span>👻</span>' : ''}
         <span class="name">
           ${esc(p.name)}
           ${p.id === state.youId ? '<span class="tag you">(you)</span>' : ''}
@@ -774,13 +823,14 @@ function rulesPanel() {
     <details id="rules" class="panel" ${openAttr('rules')}>
       <summary>How to play</summary>
       <ul class="rules">
-        <li>Everyone gets 3 tasks around the house. Imposters get tasks too, so nobody can tell from their phone.</li>
+        <li>Everyone gets tasks around the house (3 each by default). Imposters get tasks too, so nobody can tell from their phone.</li>
         <li>Crewmates do their tasks and check them off. If every crewmate task is done, the crew wins.</li>
         <li>Imposters pretend to do tasks while secretly "killing" crewmates (tag them quietly). Dead players stay put.</li>
-        <li>Found a body? Tap <b>Found a dead body</b> and pick who it was, then call an <b>Emergency meeting</b> to tell everyone.</li>
+        <li>Killed? Tap <b>I was killed</b> on your phone and stay put. Nobody is told until the next meeting.</li>
+        <li>Found a body? Call an <b>Emergency meeting</b> and talk about it. The meeting shows everyone who's dead.</li>
         <li>In a meeting, discuss and vote. The player with the most votes is out. A tie, or everyone skipping, means nobody is.</li>
         <li>Crew wins if every imposter is voted out. Imposters win once they equal the crewmates.</li>
-        <li>Dead players keep doing tasks but can't vote or call meetings. Reported dead by mistake? Tap <b>I'm not dead</b>.</li>
+        <li>Dead players keep doing tasks but can't vote, be voted for, or call meetings. Tapped <b>I was killed</b> by mistake? Tap <b>I'm not dead</b>.</li>
       </ul>
     </details>`;
 }

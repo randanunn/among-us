@@ -5,12 +5,13 @@ export type Phase = 'lobby' | 'tasks' | 'playing' | 'meeting' | 'gameover';
 export type Role = 'crew' | 'imposter';
 export type Team = 'crew' | 'imposters';
 export type TaskMode = 'auto' | 'manual';
-/** 'killed' when someone found their body (they can undo it); 'ejected' when voted out. */
+/** 'killed' when the player marked themselves killed (they can undo it); 'ejected' when voted out. */
 export type Death = 'killed' | 'ejected';
 
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 20;
-export const TASKS_PER_PLAYER = 3;
+export const DEFAULT_TASKS_PER_PLAYER = 3;
+export const MAX_TASKS_PER_PLAYER = 10;
 /** Each imposter past the first needs this many more crewmates. */
 export const CREW_PER_EXTRA_IMPOSTER = 5;
 export const MAX_NAME_LENGTH = 20;
@@ -23,7 +24,7 @@ export const DEFAULT_MEETINGS = 1;
 export const MAX_MEETINGS = 9;
 export const DEFAULT_COOLDOWN_SECONDS = 15;
 export const MAX_COOLDOWN_SECONDS = 120;
-/** How long a body report that would end the game waits, in case the "dead" player undoes it. */
+/** How long a kill that would end the game waits, in case the player tapped "I was killed" by mistake. */
 export const WIN_GRACE_MS = 15_000;
 
 export interface Task {
@@ -52,6 +53,7 @@ export interface PoolTask {
 export interface Settings {
   imposters: number;
   taskMode: TaskMode;
+  tasksPerPlayer: number;
   voteSeconds: number;
   meetingsPerPlayer: number;
   cooldownSeconds: number;
@@ -103,6 +105,7 @@ export class Game {
   settings: Settings = {
     imposters: 1,
     taskMode: 'auto',
+    tasksPerPlayer: DEFAULT_TASKS_PER_PLAYER,
     voteSeconds: DEFAULT_VOTE_SECONDS,
     meetingsPerPlayer: DEFAULT_MEETINGS,
     cooldownSeconds: DEFAULT_COOLDOWN_SECONDS,
@@ -115,9 +118,7 @@ export class Game {
   meetingNumber = 0;
   lastResult: MeetingResult | null = null;
   meetingAvailableAt = 0;
-  /** A meeting called after a body was found doesn't use up the caller's emergency meetings. */
-  bodyFoundSinceMeeting = false;
-  /** When a body report leaves one team winning, the game ends at this time unless it's undone. */
+  /** When a kill leaves one team winning, the game ends at this time unless it's undone. */
   pendingWinAt: number | null = null;
   winner: Winner | null = null;
 
@@ -166,6 +167,9 @@ export class Game {
       }
       next.taskMode = changes.taskMode;
     }
+    if (changes.tasksPerPlayer !== undefined) {
+      next.tasksPerPlayer = requireInt(changes.tasksPerPlayer, 1, MAX_TASKS_PER_PLAYER, 'Tasks per player');
+    }
     if (changes.voteSeconds !== undefined) {
       next.voteSeconds = requireInt(changes.voteSeconds, MIN_VOTE_SECONDS, MAX_VOTE_SECONDS, 'Vote time');
     }
@@ -209,7 +213,7 @@ export class Game {
   }
 
   get tasksNeeded(): number {
-    return this.players.length * TASKS_PER_PLAYER;
+    return this.players.length * this.settings.tasksPerPlayer;
   }
 
   start(id: string): void {
@@ -225,7 +229,11 @@ export class Game {
     }
     const pool = manual ? this.taskPool.map((t) => t.text) : [...AUTO_TASKS];
     if (pool.length < this.tasksNeeded) {
-      throw new GameError(`Need at least ${this.tasksNeeded} tasks (${pool.length} so far)`);
+      throw new GameError(
+        manual
+          ? `Need at least ${this.tasksNeeded} tasks (${pool.length} so far)`
+          : `There are only ${AUTO_TASKS.length} built-in tasks, not enough for ${this.settings.tasksPerPlayer} each`,
+      );
     }
 
     this.shuffle(pool);
@@ -233,7 +241,7 @@ export class Game {
     const imposterSeats = new Set(order.slice(0, imposters));
     this.players.forEach((p, i) => {
       p.role = imposterSeats.has(i) ? 'imposter' : 'crew';
-      p.tasks = pool.splice(0, TASKS_PER_PLAYER).map((text) => ({ text, done: false }));
+      p.tasks = pool.splice(0, this.settings.tasksPerPlayer).map((text) => ({ text, done: false }));
       p.death = null;
       p.deathKnown = false;
       p.meetingsUsed = 0;
@@ -242,7 +250,6 @@ export class Game {
     this.meeting = null;
     this.meetingNumber = 0;
     this.lastResult = null;
-    this.bodyFoundSinceMeeting = false;
     this.pendingWinAt = null;
     this.winner = null;
     this.meetingAvailableAt = this.now() + this.settings.cooldownSeconds * 1000;
@@ -258,24 +265,30 @@ export class Game {
     if (player.role === 'crew' && this.crewTasksDone()) this.endGame('crew', 'Every task is done!');
   }
 
-  /** Any living player can report a body. Nobody is told until the next meeting starts. */
-  reportBody(id: string, targetId: unknown): void {
-    if (this.phase !== 'playing') throw new GameError('You can only report a body between meetings');
-    this.requireAlive(id);
-    const target = typeof targetId === 'string' ? this.player(targetId) : undefined;
-    if (!target) throw new GameError('That player is not in the game');
-    if (target.id === id) throw new GameError("You can't report yourself");
-    if (target.death) throw new GameError(`${target.name} is already dead`);
-    target.death = 'killed';
-    this.bodyFoundSinceMeeting = true;
+  /**
+   * A crewmate who was killed marks it on their own phone. Nobody is told until the next
+   * meeting starts; if they mark it during a meeting, it shows right away. Imposters have the
+   * same button so their phones look the same, but it does nothing for them.
+   */
+  markKilled(id: string): void {
+    if (this.phase !== 'playing' && this.phase !== 'meeting') throw new GameError('The game is over');
+    const player = this.requireAlive(id);
+    if (player.role === 'imposter') return;
+    player.death = 'killed';
+    // Don't end the game right away, in case the tap was a mistake.
     if (this.survivorsWinner()) this.pendingWinAt = this.now() + WIN_GRACE_MS;
+    if (this.phase === 'meeting') {
+      player.deathKnown = true;
+      this.meeting!.votes.delete(id);
+      if (this.alivePlayers().every((p) => this.meeting!.votes.has(p.id))) this.closeVote();
+    }
   }
 
-  /** A player reported dead by mistake (or an imposter, who can't actually die) takes it back. */
+  /** Takes back an "I was killed" tapped by mistake. */
   undoDeath(id: string): void {
     const player = this.requirePlayer(id);
     if (this.phase !== 'playing' && this.phase !== 'meeting') throw new GameError('The game is over');
-    if (player.death !== 'killed') throw new GameError("You haven't been reported dead");
+    if (player.death !== 'killed') throw new GameError("You haven't been marked dead");
     player.death = null;
     player.deathKnown = false;
   }
@@ -285,12 +298,12 @@ export class Game {
     const caller = this.requireAlive(id);
     const wait = this.meetingAvailableAt - this.now();
     if (wait > 0) throw new GameError(`Meetings open again in ${Math.ceil(wait / 1000)}s`);
-    if (!this.bodyFoundSinceMeeting) {
+    // Like reporting a body in the real game, a meeting called after a kill is free.
+    if (!this.hasUnrevealedDeath()) {
       if (caller.meetingsUsed >= this.settings.meetingsPerPlayer) throw new GameError('You have no emergency meetings left');
       caller.meetingsUsed++;
     }
     for (const p of this.players) if (p.death) p.deathKnown = true;
-    this.bodyFoundSinceMeeting = false;
     this.meeting = {
       number: ++this.meetingNumber,
       calledBy: caller.name,
@@ -392,7 +405,7 @@ export class Game {
               tasks: me.tasks,
               death: me.death,
               meetingsLeft: Math.max(0, this.settings.meetingsPerPlayer - me.meetingsUsed),
-              canCallMeeting: !me.death && (this.bodyFoundSinceMeeting || me.meetingsUsed < this.settings.meetingsPerPlayer),
+              canCallMeeting: !me.death && (this.hasUnrevealedDeath() || me.meetingsUsed < this.settings.meetingsPerPlayer),
             }
           : null,
       counts: inGame ? { crew: counts.crew, imposters: counts.imposters } : null,
@@ -410,7 +423,7 @@ export class Game {
       lastResult: this.lastResult,
       meetingCooldownMs: this.phase === 'playing' ? Math.max(0, this.meetingAvailableAt - this.now()) : 0,
       winner: this.winner,
-      limits: { minPlayers: MIN_PLAYERS, maxPlayers: MAX_PLAYERS, minVoteSeconds: MIN_VOTE_SECONDS, maxVoteSeconds: MAX_VOTE_SECONDS, maxMeetings: MAX_MEETINGS, maxCooldownSeconds: MAX_COOLDOWN_SECONDS },
+      limits: { minPlayers: MIN_PLAYERS, maxPlayers: MAX_PLAYERS, maxTasksPerPlayer: MAX_TASKS_PER_PLAYER, autoTaskCount: AUTO_TASKS.length, minVoteSeconds: MIN_VOTE_SECONDS, maxVoteSeconds: MAX_VOTE_SECONDS, maxMeetings: MAX_MEETINGS, maxCooldownSeconds: MAX_COOLDOWN_SECONDS },
     };
   }
 
@@ -446,8 +459,12 @@ export class Game {
     this.meeting = null;
     this.phase = 'playing';
     this.meetingAvailableAt = this.now() + this.settings.cooldownSeconds * 1000;
-    // A pending body-report win still gets its full grace period.
+    // A pending win from a kill still gets its full grace period.
     if (this.pendingWinAt === null) this.endIfOutnumbered(true);
+  }
+
+  private hasUnrevealedDeath(): boolean {
+    return this.players.some((p) => p.death && !p.deathKnown);
   }
 
   private alivePlayers(): Player[] {

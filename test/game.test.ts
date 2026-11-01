@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, GameError, maxImposters, WIN_GRACE_MS, TASKS_PER_PLAYER } from '../src/game.ts';
+import { Game, GameError, maxImposters, WIN_GRACE_MS, DEFAULT_TASKS_PER_PLAYER } from '../src/game.ts';
 
 /**
  * An automatic-task game with a controllable clock. With `random: () => 0` the shuffle
@@ -54,7 +54,7 @@ test('needs 3 players and respects the imposter cap', () => {
 test('automatic mode deals 3 unique tasks each and locks the room', () => {
   const { game } = setup(['a', 'b', 'c', 'd']);
   const all = game.players.flatMap((p) => p.tasks.map((t) => t.text));
-  assert.equal(all.length, 4 * TASKS_PER_PLAYER);
+  assert.equal(all.length, 4 * DEFAULT_TASKS_PER_PLAYER);
   assert.equal(new Set(all).size, all.length);
   assert.throws(() => game.join('e', 'e'), /locked/);
   assert.doesNotThrow(() => game.join('a', 'a')); // reconnecting is fine
@@ -79,6 +79,27 @@ test('manual mode: lock, anyone adds tasks, need 3 per player, then start', () =
   assert.deepEqual(dealt, game.taskPool.map((t) => t.text).sort());
 });
 
+test('tasks per player is configurable', () => {
+  const game = new Game({ random: () => 0 });
+  for (const id of ['a', 'b', 'c']) game.join(id, id);
+  assert.throws(() => game.updateSettings('a', { tasksPerPlayer: 0 }), /between 1 and 10/);
+  game.updateSettings('a', { tasksPerPlayer: 5, taskMode: 'manual' });
+  game.lockRoom('a');
+  for (let i = 0; i < 14; i++) game.addTask('a', `Task ${i}`);
+  assert.throws(() => game.start('a'), /Need at least 15 tasks \(14 so far\)/);
+  game.addTask('b', 'Task 14');
+  game.start('a');
+  assert.ok(game.players.every((p) => p.tasks.length === 5));
+  assert.equal(game.viewFor('a').progress!.total, 10);
+});
+
+test('automatic mode says when there are not enough built-in tasks', () => {
+  const game = new Game({ random: () => 0 });
+  for (let i = 0; i < 7; i++) game.join(`p${i}`, `p${i}`);
+  game.updateSettings('p0', { tasksPerPlayer: 10 });
+  assert.throws(() => game.start('p0'), /only \d+ built-in tasks/);
+});
+
 test('manual mode can deal the same task twice only if it was entered twice', () => {
   const game = new Game({ random: () => 0 });
   for (const id of ['a', 'b', 'c']) game.join(id, id);
@@ -95,7 +116,7 @@ test('imposters see each other; crew see nobody; roles are hidden from everyone 
   assert.deepEqual(game.viewFor('g').you!.fellowImposters, ['h']);
   assert.deepEqual(game.viewFor('a').you!.fellowImposters, []);
   assert.ok(game.viewFor('a').players.every((p) => p.role === null));
-  assert.equal(game.viewFor('g').you!.tasks.length, TASKS_PER_PLAYER);
+  assert.equal(game.viewFor('g').you!.tasks.length, DEFAULT_TASKS_PER_PLAYER);
 });
 
 test('crew win when every crewmate task is done; imposter tasks do not count', () => {
@@ -113,14 +134,14 @@ test('crew win when every crewmate task is done; imposter tasks do not count', (
 
 test('dead crewmates keep doing tasks', () => {
   const { game, finishTasks } = setup(['a', 'b', 'c', 'd', 'e']);
-  game.reportBody('b', 'a');
+  game.markKilled('a');
   finishTasks('a');
   assert.equal(game.viewFor('b').progress!.done, 3);
 });
 
-test('a reported death stays hidden until the next meeting', () => {
+test('a kill stays hidden until the next meeting', () => {
   const { game } = setup(['a', 'b', 'c', 'd', 'e']);
-  game.reportBody('b', 'a');
+  game.markKilled('a');
   assert.equal(game.viewFor('c').players[0].death, null);
   assert.deepEqual(game.viewFor('c').counts, { crew: 4, imposters: 1 });
   assert.equal(game.viewFor('a').you!.death, 'killed');
@@ -129,9 +150,37 @@ test('a reported death stays hidden until the next meeting', () => {
   assert.deepEqual(game.viewFor('c').counts, { crew: 3, imposters: 1 });
 });
 
-test('the reported player can undo any time, including during a meeting, and then vote', () => {
+test('marking yourself killed during a meeting shows right away and takes back your vote', () => {
   const { game } = setup(['a', 'b', 'c', 'd', 'e']);
-  game.reportBody('b', 'a');
+  game.callMeeting('b');
+  game.vote('a', 'e');
+  game.markKilled('a');
+  assert.equal(game.viewFor('c').players[0].death, 'killed');
+  assert.deepEqual(game.viewFor('c').counts, { crew: 3, imposters: 1 });
+  assert.ok(!game.meeting!.votes.has('a'));
+  assert.throws(() => game.vote('c', 'a'), /living player/);
+});
+
+test('the last vote missing closes the meeting when that player marks themselves killed', () => {
+  const { game } = setup(['a', 'b', 'c', 'd', 'e']);
+  game.callMeeting('b');
+  for (const id of ['b', 'c', 'd', 'e']) game.vote(id, null);
+  game.markKilled('a');
+  assert.equal(game.phase, 'playing');
+  assert.equal(game.lastResult!.votes.length, 4);
+});
+
+test("an imposter's I was killed does nothing", () => {
+  const { game } = setup(['a', 'b', 'c', 'd', 'e']);
+  game.markKilled('e');
+  assert.equal(game.player('e')!.death, null);
+  assert.equal(game.pendingWinAt, null);
+  assert.equal(game.viewFor('e').you!.canCallMeeting, true);
+});
+
+test('a killed player can undo any time, including during a meeting, and then vote', () => {
+  const { game } = setup(['a', 'b', 'c', 'd', 'e']);
+  game.markKilled('a');
   game.callMeeting('b');
   assert.throws(() => game.vote('a', null), /dead/);
   game.undoDeath('a');
@@ -140,18 +189,16 @@ test('the reported player can undo any time, including during a meeting, and the
   assert.ok(game.meeting!.votes.has('a'));
 });
 
-test('only living players can report bodies or call meetings', () => {
+test('dead players cannot call meetings or die twice', () => {
   const { game } = setup(['a', 'b', 'c', 'd', 'e']);
-  game.reportBody('b', 'a');
-  assert.throws(() => game.reportBody('a', 'c'), /dead/);
+  game.markKilled('a');
   assert.throws(() => game.callMeeting('a'), /dead/);
-  assert.throws(() => game.reportBody('b', 'b'), /yourself/);
-  assert.throws(() => game.reportBody('c', 'a'), /already dead/);
+  assert.throws(() => game.markKilled('a'), /dead/);
 });
 
-test('a body report that ties imposters with crew ends the game after a grace period', () => {
+test('a kill that ties imposters with crew ends the game after a grace period', () => {
   const { game, tick } = setup(['a', 'b', 'c']);
-  game.reportBody('c', 'a');
+  game.markKilled('a');
   assert.equal(game.phase, 'playing');
   tick(WIN_GRACE_MS - 1);
   game.tick();
@@ -162,16 +209,32 @@ test('a body report that ties imposters with crew ends the game after a grace pe
   assert.equal(game.winner!.team, 'imposters');
 });
 
-test('undoing a mistaken report during the grace period cancels the win', () => {
+test('a kill marked during a meeting also waits before the imposters win', () => {
   const { game, tick } = setup(['a', 'b', 'c']);
-  game.reportBody('b', 'a');
+  game.callMeeting('a');
+  game.markKilled('b');
+  assert.equal(game.phase, 'meeting');
+  game.undoDeath('b');
+  tick(WIN_GRACE_MS);
+  game.tick();
+  assert.equal(game.phase, 'meeting');
+  game.markKilled('b');
+  tick(WIN_GRACE_MS);
+  game.tick();
+  assert.equal(game.phase, 'gameover');
+  assert.equal(game.winner!.team, 'imposters');
+});
+
+test('undoing a mistaken kill during the grace period cancels the win', () => {
+  const { game, tick } = setup(['a', 'b', 'c']);
+  game.markKilled('a');
   game.undoDeath('a');
   tick(WIN_GRACE_MS);
   assert.equal(game.tick(), false);
   assert.equal(game.phase, 'playing');
 });
 
-test('emergency meetings: one each by default, free after a body is found, with a cooldown', () => {
+test('emergency meetings: one each by default, free after a kill, with a cooldown', () => {
   const { game, tick } = setup(['a', 'b', 'c', 'd', 'e']);
   assert.throws(() => game.updateSettings('a', { voteSeconds: 30 }), /before the game starts/);
   game.settings.cooldownSeconds = 15;
@@ -180,8 +243,8 @@ test('emergency meetings: one each by default, free after a body is found, with 
   assert.throws(() => game.callMeeting('b'), /open again in 15s/);
   tick(15_000);
   assert.throws(() => game.callMeeting('a'), /no emergency meetings left/);
-  game.reportBody('b', 'd');
-  game.callMeeting('a'); // free: a body was found
+  game.markKilled('d');
+  game.callMeeting('a'); // free: someone was killed since the last meeting
   assert.equal(game.player('a')!.meetingsUsed, 1);
 });
 
@@ -213,6 +276,24 @@ test('voting: most votes is ejected, skips count for nobody, votes can change', 
   assert.equal(game.lastResult!.ejected!.role, 'imposter');
 });
 
+test('dead players (killed or voted out) cannot vote or be voted for', () => {
+  const { game } = setup(['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  game.callMeeting('a');
+  everyoneVotes(game, 'b'); // b is voted out
+  game.markKilled('c');
+  game.player('d')!.meetingsUsed = 0;
+  game.callMeeting('d');
+  for (const dead of ['b', 'c']) {
+    assert.throws(() => game.vote(dead, 'a'), /dead/);
+    assert.throws(() => game.vote(dead, null), /dead/);
+    assert.throws(() => game.vote('a', dead), /living player/);
+  }
+  // Only the 5 living players need to vote for the meeting to close.
+  everyoneVotes(game, null);
+  assert.equal(game.phase, 'playing');
+  assert.deepEqual(game.lastResult!.votes.map((v) => v.voterId), ['a', 'd', 'e', 'f', 'g']);
+});
+
 test('voting: a tie or all skips ejects nobody', () => {
   const { game } = setup(['a', 'b', 'c', 'd', 'e']);
   game.callMeeting('a');
@@ -239,7 +320,7 @@ test('ejecting a crewmate reports their role and who is left, then play continue
   assert.equal(result.impostersLeft, 1);
   assert.equal(result.votes.length, 5);
   assert.equal(game.phase, 'playing');
-  assert.throws(() => game.undoDeath('b'), /haven't been reported/);
+  assert.throws(() => game.undoDeath('b'), /haven't been marked dead/);
 });
 
 test('the vote timer closes the meeting and non-voters count as skips', () => {
@@ -307,7 +388,6 @@ test('roles are revealed to everyone at game over', () => {
 test('rejects bad input', () => {
   const { game } = setup(['a', 'b', 'c', 'd', 'e']);
   assert.throws(() => game.setTaskDone('a', 9, true), GameError);
-  assert.throws(() => game.reportBody('a', 'nobody'), GameError);
   game.callMeeting('a');
   assert.throws(() => game.vote('a', 'nobody'), /living player/);
 });

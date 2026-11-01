@@ -23,16 +23,17 @@ Games live in memory on a single instance. Render's free tier sleeps after 15 mi
 
 ## How to play
 
-- In the waiting room, the host picks the number of imposters, the vote timer, how many emergency meetings each player gets, and the meeting cooldown.
-- **Automatic tasks:** the host taps **Start game** and everyone gets 3 tasks from around the house.
-- **Manual tasks:** the host locks the room, then anyone adds tasks (and can delete them) until there are 3 per player. Then the host starts the game.
+- In the waiting room, the host picks the number of imposters, how many tasks each player gets (3 by default), the vote timer, how many emergency meetings each player gets, and the meeting cooldown.
+- **Automatic tasks:** the host taps **Start game** and everyone gets tasks from a built-in list of things to do around the house.
+- **Manual tasks:** the host locks the room, then anyone adds tasks (and can delete them) until there are enough for everyone. Then the host starts the game.
 - Everyone sees their role privately. Imposters also see who the other imposters are. After that, every phone looks the same.
 - Crewmates check off tasks as they do them. Imposters pretend to do theirs and secretly "kill" crewmates in person.
-- Anyone who finds a body taps **Found a dead body** and picks who it was. Nobody is told until someone calls an **Emergency meeting**. Then the meeting shows who's dead and updates the crewmate and imposter counts.
-- Each player gets 1 emergency meeting by default. Calling one after a body has been found doesn't use it up.
+- A crewmate who gets killed taps **I was killed** on their own phone and stays put. Nobody is told until someone calls an **Emergency meeting**. Every phone then plays an alarm (there's a test button in the waiting room), and the meeting shows who's dead and updates the crewmate and imposter counts. Imposters have the same button so their phones look the same, but it does nothing for them.
+- Whoever finds a body just calls a meeting and talks about it. Someone killed who forgot to tap the button can still tap it during the meeting.
+- Each player gets 1 emergency meeting by default. Calling one after someone has been killed doesn't use it up.
 - In a meeting, living players vote for someone or skip. Votes can change until the timer runs out, or until everyone has voted. The player with the most votes is out, and a tie or all skips means nobody is. Everyone then sees who was voted out, whether they were an imposter, how many of each are left, and who voted for whom.
-- Dead players keep doing tasks but can't vote or call meetings. Anyone reported dead by mistake (or an imposter, who can't be killed) can tap **I'm not dead** at any time.
-- **Crewmates win** when every crewmate task is done or every imposter is voted out. **Imposters win** once they equal the crewmates. If a body report causes that, the game waits 15 seconds in case it was a mistake.
+- Dead players keep doing tasks but can't vote, be voted for, or call meetings. In meetings they're listed at the bottom with a 👻. Anyone who tapped **I was killed** by mistake can tap **I'm not dead** at any time.
+- **Crewmates win** when every crewmate task is done or every imposter is voted out. **Imposters win** once they equal the crewmates. If a kill causes that, the game waits 15 seconds in case it was tapped by mistake.
 - **Play again** takes everyone back to the waiting room, where the host can change settings, let more people join, or remove players.
 
 ## Development
